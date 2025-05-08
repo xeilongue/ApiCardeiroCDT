@@ -19,3 +19,13 @@ model User {
   name        String
   password    String
 }
+
+model Suporte {
+  idSuporte          String        @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  email       String        @unique
+  telefone    String
+  contato     String
+  problema    String
+  descricao   String
+}
