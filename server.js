@@ -1,26 +1,18 @@
 import cors from "cors";
 import express from "express";
-import { PrismaClient } from "@prisma/client"; // Prisma
+import { PrismaClient } from "@prisma/client";
 import jwt from "jsonwebtoken";
 import bodyParser from "body-parser";
+import bcrypt from "bcrypt";
 
 const app = express();
 const prisma = new PrismaClient(); // Prisma
-const PORT = 8083
+const PORT = 3002
 
 app.use(express.json());
 app.use(bodyParser.json());
 app.use(cors());
 const SECRET = "seu_segredo_aqui";
-
-//const users = []; // Comentar se for usar Prisma
-/*
-app.use('/', (req,res) => {
-    res.json({
-        status: "API working fine",
-        code: 200
-    })
-})*/
 
 app.post('/login/google', async (req, res) => {
     const { email, name } = req.body;
@@ -45,12 +37,34 @@ app.post('/login/google', async (req, res) => {
     }
   }); 
 
-app.post('/login', async (req, res) => {
+// **USUÁRIOS**
 
+// Criar usuário
+app.post('/users', async (req,res) => {
+    try {
+        const hashedPassword = await bcrypt.hash(req.body.password, 10);
+        await prisma.user.create({
+            data: {
+                email: req.body.email,
+                name: req.body.name,
+                password: hashedPassword
+            }
+        });
+        res.status(201).json({
+            email: req.body.email,
+            name: req.body.name
+        });
+    } catch (error) {
+        res.status(500).json({ message: 'Erro ao criar usuário', error: error.message });
+    }
+});
+
+// Remova a primeira rota de login e mantenha apenas esta
+app.post('/login', async (req, res) => {
     const { email, password } = req.body;
 
     try {
-        const user = await prisma.User.findUnique({
+        const user = await prisma.user.findUnique({  // Note: changed User to user
             where: { email: email }
         });
 
@@ -59,33 +73,74 @@ app.post('/login', async (req, res) => {
             return res.status(406).json({ message: 'Usuário não encontrado' });
         }
 
-        if (user.password !== password) {
+        const senhaCorreta = await bcrypt.compare(password, user.password);
+        if (!senhaCorreta) {
             return res.status(401).json({ message: 'Senha incorreta' });
         }
 
         const token = jwt.sign({ id: user.id, email: user.email }, SECRET, { expiresIn: '1h' });
-        res.status(200).json({ message: 'Login bem-sucedido', token: token });
+        res.status(200).json({ 
+            message: 'Login bem-sucedido', 
+            token: token,
+            userId: user.id,
+            name: user.name
+        });
     } catch (error) {
+        console.error('Erro no login:', error);
         res.status(500).json({ message: 'Erro no servidor', error: error.message });
     }
 });
 
-// **USUÁRIOS**
+// Editar usuário
+app.put('/users/:id', async (req, res) => {
+    try {
+        // Primeiro, busca o usuário atual
+        const currentUser = await prisma.user.findUnique({
+            where: {
+                id: req.params.id
+            }
+        });
 
-// Criar usuário
-app.post('/users', async (req,res) => {
-    //users.push(req.body);
-    await prisma.user.create({ // Prisma
-        data: {
+        if (!currentUser) {
+            return res.status(404).json({ message: 'Usuário não encontrado' });
+        }
+
+        // Se uma nova senha foi fornecida, verifica a senha antiga
+        if (req.body.password) {
+            const passwordMatch = await bcrypt.compare(req.body.oldPassword, currentUser.password);
+            if (!passwordMatch) {
+                return res.status(401).json({ message: 'Senha atual incorreta' });
+            }
+        }
+
+        const updateData = {
             email: req.body.email,
             name: req.body.name,
-            password: req.body.password
+        };
+
+        // Se uma nova senha foi fornecida e a antiga foi verificada, criptografa a nova
+        if (req.body.password) {
+            const hashedPassword = await bcrypt.hash(req.body.password, 10);
+            updateData.password = hashedPassword;
         }
-    });
 
+        const updatedUser = await prisma.user.update({
+            where: {
+                id: req.params.id
+            },
+            data: updateData
+        });
 
-    res.status(201).json(req.body);
-})
+        res.status(200).json({
+            message: 'Usuário atualizado com sucesso',
+            email: updatedUser.email,
+            name: updatedUser.name
+        });
+    } catch (error) {
+        console.error('Erro ao atualizar usuário:', error);
+        res.status(500).json({ message: 'Erro ao atualizar usuário', error: error.message });
+    }
+});
 
 // Consultar apenas um usuário pelo ID
 app.get('/users/:id', async (req, res) => {
@@ -123,38 +178,8 @@ app.get('/users', async (req,res) => {
     res.status(200).json(users);
 });
 
-// Editar usuário
-app.put('/users/:id', async (req,res) => {
-    //users.push(req.body);
-    await prisma.user.update({ // Prisma
-        where: {
-            id: req.params.id
-        },
-        data: {
-            email: req.body.email,
-            name: req.body.name,
-            password: req.body.password
-        }
-    });
-
-    res.status(201).json(req.body);
-})
-
-// Deletar usuário
-app.delete('/users/:id', async (req,res) => {
-    //users.push(req.body);
-    await prisma.user.delete({ // Prisma
-        where: {
-            id: req.params.id
-        }
-    });
-
-    res.status(200).json({message: 'Usuário deletado com Sucesso!'});
-})
-
 
 //321cardeiro123
-
 
 // **SUPORTE**
 
